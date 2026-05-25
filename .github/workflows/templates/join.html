@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bergabung Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="card welcome-card">
+            <div class="header">
+                <div class="logo">👋</div>
+                <h1>Bergabung Chat</h1>
+                <p class="subtitle">Masukkan nama Anda untuk memulai</p>
+            </div>
+            
+            <div class="form-section">
+                <div class="form-group">
+                    <label for="name">Nama Anda:</label>
+                    <input 
+                        type="text" 
+                        id="name" 
+                        placeholder="Masukkan nama Anda"
+                        maxlength="50"
+                        autocomplete="off"
+                    >
+                    <small>Minimal 2 karakter</small>
+                </div>
+                
+                <button id="joinBtn" class="btn btn-primary">
+                    <span>Bergabung ke Chat</span>
+                </button>
+                
+                <a href="/" class="btn btn-secondary">Kembali</a>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="spinner"></div>
+            <p>Bergabung ke chat room...</p>
+        </div>
+    </div>
+
+    <div id="errorModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="error-icon">✗</div>
+            <h2 id="errorTitle">Gagal Bergabung</h2>
+            <p id="errorMessage"></p>
+            <button class="btn btn-primary" onclick="location.href='/'">Kembali</button>
+        </div>
+    </div>
+
+    <script>
+        const roomId = '{{ room_id }}';
+        const accessLink = '{{ access_link }}';
+        
+        document.getElementById('joinBtn').addEventListener('click', joinChat);
+        document.getElementById('name').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') joinChat();
+        });
+
+        async function joinChat() {
+            const name = document.getElementById('name').value.trim();
+            
+            if (!name || name.length < 2) {
+                alert('Nama harus minimal 2 karakter');
+                return;
+            }
+            
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/join-room', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        access_link: accessLink
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    showError('Gagal Bergabung', data.error || 'Terjadi kesalahan');
+                    return;
+                }
+                
+                // Redirect to chat
+                window.location.href = `/chat/${data.room_id}`;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Kesalahan Koneksi', 'Tidak dapat terhubung ke server');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingModal').classList.toggle('hidden', !show);
+        }
+
+        function showError(title, message) {
+            document.getElementById('errorTitle').textContent = title;
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorModal').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
