@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat - {{ user_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Header -->
+        <div class="chat-header">
+            <div class="header-left">
+                <h2>{{ user_name }}</h2>
+            </div>
+            
+            <div class="header-center">
+                <span class="other-user">{{ other_user or 'Menunggu...' }}</span>
+                <div class="status-indicator">
+                    <span class="status-dot offline" id="statusDot"></span>
+                    <span id="statusText">Offline</span>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <button id="exitBtn" class="btn-icon" title="Keluar">
+                    ✕
+                </button>
+            </div>
+        </div>
+
+        <!-- Messages Area -->
+        <div class="messages-area" id="messagesArea">
+            {% if messages %}
+                {% for msg in messages %}
+                    <div class="message {% if msg.sender_id == user_id %}sent{% else %}received{% endif %}">
+                        <div class="message-bubble">
+                            <div class="message-sender">{{ msg.sender_name }}</div>
+                            <div class="message-content">{{ msg.content }}</div>
+                            <div class="message-time">{{ msg.timestamp }}</div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <div class="empty-icon">💬</div>
+                    <p>Mulai percakapan baru</p>
+                    <small>Pesan Anda terenkripsi dan aman</small>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+            <div class="input-container">
+                <textarea 
+                    id="messageInput" 
+                    placeholder="Ketik pesan..." 
+                    rows="1"
+                    maxlength="2000"
+                ></textarea>
+                <button id="sendBtn" class="btn-send" title="Kirim">
+                    <span>📤</span>
+                </button>
+            </div>
+            <small id="charCount" class="char-count">0/2000</small>
+        </div>
+    </div>
+
+    <div id="notificationContainer" class="notification-container"></div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const roomId = '{{ room_id }}';
+        const userId = '{{ user_id }}';
+        const userName = '{{ user_name }}';
+        const otherUser = '{{ other_user }}';
+
+        // Initialize Socket.io
+        const socket = io({
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            reconnectionAttempts: 5
+        });
+
+        // DOM Elements
+        const messagesArea = document.getElementById('messagesArea');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const exitBtn = document.getElementById('exitBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const charCount = document.getElementById('charCount');
+
+        // Auto-resize textarea
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+            
+            const count = this.value.length;
+            charCount.textContent = `${count}/2000`;
+        });
+
+        // Send message
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            
+            if (!content) return;
+            
+            socket.emit('send_message', {
+                room_id: roomId,
+                user_id: userId,
+                user_name: userName,
+                content: content
+            });
+            
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            charCount.textContent = '0/2000';
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Exit chat
+        exitBtn.addEventListener('click', () => {
+            if (confirm('Keluar dari chat? Percakapan akan tersimpan.')) {
+                socket.disconnect();
+                window.location.href = '/';
+            }
+        });
+
+        // Socket.io events
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            socket.emit('user_join', {
+                user_id: userId,
+                room_id: roomId,
+                user_name: userName
+            });
+            
+            // Check online status periodically
+            checkOnlineStatus();
+            setInterval(checkOnlineStatus, 3000);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            statusDot.className = 'status-dot offline';
+            statusText.textContent = 'Offline';
+        });
+
+        socket.on('new_message', (data) => {
+            addMessageToChat(data);
+        });
+
+        socket.on('user_status_changed', (data) => {
+            if (data.user_id !== userId) {
+                if (data.online) {
+                    statusDot.className = 'status-dot online';
+                    statusText.textContent = 'Online';
+                    showNotification(`${data.user_name} sudah online`, 'success');
+                } else {
+                    statusDot.className = 'status-dot offline';
+                    statusText.textContent = 'Offline';
+                    showNotification(`${data.user_name} sudah offline`, 'info');
+                }
+            }
+        });
+
+        socket.on('online_status', (data) => {
+            if (otherUser) {
+                if (data.user1_id !== userId && data.user1_online) {
+                    statusDot.className = 'status-dot online';
+                    statusText.textContent = 'Online';
+                } else if (data.user2_id !== userId && data.user2_online) {
+                    statusDot.className = 'status-dot online';
+                    statusText.textContent = 'Online';
+                } else {
+                    statusDot.className = 'status-dot offline';
+                    statusText.textContent = 'Offline';
+                }
+            }
+        });
+
+        socket.on('error', (data) => {
+            showNotification(data.message || 'Terjadi kesalahan', 'error');
+        });
+
+        // Helper functions
+        function addMessageToChat(msg) {
+            if (document.querySelector('.empty-state')) {
+                messagesArea.innerHTML = '';
+            }
+            
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${msg.sender_id === userId ? 'sent' : 'received'}`;
+            messageEl.innerHTML = `
+                <div class="message-bubble">
+                    <div class="message-sender">${escapeHtml(msg.sender_name)}</div>
+                    <div class="message-content">${escapeHtml(msg.content)}</div>
+                    <div class="message-time">${msg.timestamp}</div>
+                </div>
+            `;
+            
+            messagesArea.appendChild(messageEl);
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        }
+
+        function checkOnlineStatus() {
+            socket.emit('check_online', {
+                room_id: roomId,
+                user_id: userId
+            });
+        }
+
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notificationContainer');
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.textContent = message;
+            
+            container.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.classList.add('fade-out');
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
